@@ -4,7 +4,16 @@ Official Java client for the **[Praxicraft Assess](https://assess.praxicraft.com
 
 Use it to invite candidates, check invite quota, manage webhooks, enroll hiring pipelines, and fetch results from your ATS, backend, or automation scripts.
 
+Published on [GitHub Packages](https://github.com/praxicraft-platform/praxicraft-java/packages) as `com.praxicraft:assess`.
+
 ```xml
+<repositories>
+  <repository>
+    <id>github</id>
+    <url>https://maven.pkg.github.com/praxicraft-platform/praxicraft-java</url>
+  </repository>
+</repositories>
+
 <dependency>
   <groupId>com.praxicraft</groupId>
   <artifactId>assess</artifactId>
@@ -12,12 +21,7 @@ Use it to invite candidates, check invite quota, manage webhooks, enroll hiring 
 </dependency>
 ```
 
-Until Maven Central publish, install from source or consume [GitHub Packages](https://github.com/praxicraft-platform/praxicraft-java/packages):
-
-```bash
-git clone https://github.com/praxicraft-platform/praxicraft-java.git
-cd praxicraft-java && mvn install
-```
+Authenticate to GitHub Packages with a PAT that has `read:packages` (server id `github` in `~/.m2/settings.xml`).
 
 **Requires Java 17+.** Full API reference: [docs.praxicraft.com/sdks/java](https://docs.praxicraft.com/sdks/java)
 
