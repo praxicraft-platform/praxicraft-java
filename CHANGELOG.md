@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- ci: release via tags only (no push to main) (#2)
+- docs: add CODE_OF_CONDUCT and update CONTRIBUTING (#1)
+- ci: auto-bump releases with GitHub Release + package publish
+- Document GitHub Packages as the primary Java install path.
+
 ## [0.1.0] — 2026-08-21
 
 ### Added
