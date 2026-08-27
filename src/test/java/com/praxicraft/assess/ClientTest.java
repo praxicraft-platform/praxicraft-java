@@ -77,4 +77,46 @@ class ClientTest {
     assertTrue(capturedUrl.get().contains("/api/v1/public/assessments/create/"));
     assertTrue(capturedBody.get().contains("Demo"));
   }
+
+  @Test
+  void assessmentTaskPathsAndBodyKeys() {
+    List<Object[]> calls = new ArrayList<>();
+    Client client =
+        Client.builder()
+            .apiKey("ct_test_x")
+            .httpHandler(
+                (method, url, headers, body) -> {
+                  calls.add(new Object[] {method, url, body});
+                  if (url.contains("/tasks/attach/")) {
+                    return new HttpExchangeResponse(200, Map.of(), "{\"attached\":1}");
+                  }
+                  if (url.contains("/tasks/remove/")) {
+                    return new HttpExchangeResponse(204, Map.of(), "");
+                  }
+                  return new HttpExchangeResponse(
+                      200, Map.of(), "{\"results\":[{\"id\":\"row-1\"}]}");
+                })
+            .build();
+
+    client
+        .assessments()
+        .attachTasks(
+            "demo",
+            Map.of(
+                "tasks",
+                List.of(Map.of("task_id", "task-1", "source", "platform"))));
+    client.assessments().listTasks("demo", null);
+    client.assessments().removeTask("demo", "row-1");
+
+    assertEquals("POST", calls.get(0)[0]);
+    assertTrue(((String) calls.get(0)[1]).contains("/assessments/demo/tasks/attach/"));
+    assertTrue(((String) calls.get(0)[2]).contains("task_id"));
+
+    assertEquals("GET", calls.get(1)[0]);
+    assertTrue(((String) calls.get(1)[1]).contains("/assessments/demo/tasks/"));
+
+    assertEquals("DELETE", calls.get(2)[0]);
+    assertTrue(((String) calls.get(2)[1]).contains("/assessments/demo/tasks/remove/"));
+    assertTrue(((String) calls.get(2)[2]).contains("assessment_task_id"));
+  }
 }

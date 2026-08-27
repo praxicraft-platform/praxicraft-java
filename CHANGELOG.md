@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0] — 2026-08-27
+
+### Breaking
+
+- Rename assessment task methods from `listCases` / `attachCases` / `replaceCases` / `removeCase` to `listTasks` / `attachTasks` / `replaceTasks` / `removeTask`.
+- Wire paths use `/tasks/` instead of `/cases/`; JSON keys use `tasks`, `task_id`, and `assessment_task_id`.
+
 ## [0.1.0] — 2026-08-21
 
 ### Added
