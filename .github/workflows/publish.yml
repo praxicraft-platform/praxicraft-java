@@ -1,13 +1,15 @@
 name: Publish
 
+# Release via tags only. Bump version in pom.xml / Version.java on main, tag, then push tag or workflow_dispatch.
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "pom.xml"
-      - ".github/workflows/publish.yml"
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish (e.g. v1.0.0). Required for manual runs."
+        required: true
+        type: string
 
 concurrency:
   group: publish-maven
@@ -18,12 +20,6 @@ permissions:
 
 jobs:
   test:
-    if: |
-      github.event_name == 'workflow_dispatch' || (
-        github.event.head_commit != null &&
-        !startsWith(github.event.head_commit.message, 'chore(release):') &&
-        !contains(github.event.head_commit.message, '[skip release]')
-      )
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,6 +27,8 @@ jobs:
         java-version: ["17", "21"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -40,12 +38,6 @@ jobs:
 
   publish:
     needs: test
-    if: |
-      github.event_name == 'workflow_dispatch' || (
-        github.event.head_commit != null &&
-        !startsWith(github.event.head_commit.message, 'chore(release):') &&
-        !contains(github.event.head_commit.message, '[skip release]')
-      )
     runs-on: ubuntu-latest
     environment: maven
     permissions:
@@ -54,68 +46,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve release tag
+        id: release
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "Tag must look like v1.0.0 (got: $TAG)"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${TAG} (artifact version ${VERSION})"
+
+      - name: Verify package version matches tag
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.release.outputs.version }}"
+          POM=$(grep -A2 '<artifactId>assess</artifactId>' pom.xml | grep '<version>' | head -1 | sed -E 's/.*<version>([^<]+)<\/version>.*/\1/')
+          JAVA_VER=$(grep 'STRING' src/main/java/com/praxicraft/assess/Version.java | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$POM" != "$VERSION" ] || [ "$JAVA_VER" != "$VERSION" ]; then
+            echo "Version mismatch: tag v${VERSION}, pom.xml=${POM}, Version.java=${JAVA_VER}"
+            exit 1
+          fi
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Auto-bump patch version and CHANGELOG
-        id: version
-        run: |
-          set -euo pipefail
-          git fetch --tags --force
-          LATEST="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0.0')"
-          RAW="${LATEST#v}"
-          IFS=. read -r MAJOR MINOR PATCH <<<"$RAW"
-          MAJOR="${MAJOR:-0}"; MINOR="${MINOR:-0}"; PATCH="${PATCH:-0}"
-          PATCH=$((PATCH + 1))
-          VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          TAG="v${VERSION}"
-          NOTES="$(git log "${LATEST}..HEAD" --pretty=format:'- %s' --no-merges 2>/dev/null | sed '/^chore(release):/d' || true)"
-          if [ -z "$NOTES" ]; then NOTES="- Maintenance release."; fi
-          export VERSION NOTES
-          python3 - <<'PY'
-          from pathlib import Path
-          import os, re
-          v, notes = os.environ["VERSION"], os.environ["NOTES"]
-          pom = Path("pom.xml")
-          text = pom.read_text()
-          text = re.sub(
-              r"(<groupId>com\.praxicraft</groupId>\s*<artifactId>assess</artifactId>\s*<version>)[^<]+(</version>)",
-              rf"\g<1>{v}\g<2>",
-              text,
-              count=1,
-              flags=re.S,
-          )
-          pom.write_text(text)
-          ver = Path("src/main/java/com/praxicraft/assess/Version.java")
-          ver.write_text(re.sub(r'STRING\s*=\s*"[^"]*"', f'STRING = "{v}"', ver.read_text()))
-          cl = Path("CHANGELOG.md")
-          body = cl.read_text() if cl.exists() else "# Changelog\n\n"
-          prior = body[body.index("## "):] if "## " in body else ""
-          cl.write_text(f"# Changelog\n\n## {v}\n\n{notes}\n\n{prior}")
-          PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pom.xml src/main/java/com/praxicraft/assess/Version.java CHANGELOG.md
-          if ! git diff --cached --quiet; then
-            # Local commit only — do not push to main (rules require PRs).
-            # Pushing the annotated tag keeps this release commit reachable.
-            git commit -m "chore(release): ${TAG}"
-          fi
-          {
-            echo "version=${VERSION}"
-            echo "tag=${TAG}"
-          } >> "$GITHUB_OUTPUT"
-      - name: Create and push release tag
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then echo "Tag exists"; exit 0; fi
-          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
       - name: Publish to GitHub Packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -137,8 +103,8 @@ jobs:
       - run: mvn -B -DskipTests package
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.tag }}
           generate_release_notes: true
           files: |
             target/assess-*.jar
